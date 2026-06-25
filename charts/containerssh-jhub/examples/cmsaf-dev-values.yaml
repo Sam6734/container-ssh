@@ -10,7 +10,7 @@ service:
   port: 2222
   annotations:
     external-dns.alpha.kubernetes.io/hostname: ssh.cmsaf-dev.flatiron.hollandhpc.org
-  loadBalancerIP: ""
+  loadBalancerIP: "129.93.179.28"
 
 ssh:
   hostKeySecret:
@@ -49,7 +49,7 @@ image:
     pullPolicy: IfNotPresent
   containerssh:
     repository: containerssh/containerssh
-    tag: "0.6.1"
+    tag: "v0.6"
     pullPolicy: IfNotPresent
 
 rbac:

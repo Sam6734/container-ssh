@@ -89,7 +89,7 @@ spec:
         - name: host-key
           secret:
             secretName: {{ .Values.ssh.hostKeySecret.name }}
-            defaultMode: 0600
+            defaultMode: 0644
 ---
 apiVersion: v1
 kind: Service
