@@ -1,3 +1,4 @@
+import base64
 import os
 import re
 import logging
@@ -79,10 +80,23 @@ def password():
     data = request.get_json(force=True, silent=True) or {}
     ssh_username = data.get("username", "")
     token = data.get("password", "")
+    if not token and data.get("passwordBase64"):
+        password_b64 = data.get("passwordBase64", "")
+        try:
+            token = base64.b64decode(
+                password_b64 + ("=" * (-len(password_b64) % 4))
+            ).decode("utf-8").strip()
+        except Exception as exc:
+            logger.error("passwordBase64 decode failed for %s: %s", ssh_username, exc)
+            return jsonify({"success": False})
+
+    if not token:
+        logger.warning("No password/token supplied for %s", ssh_username)
+        return jsonify({"success": False})
 
     logger.info("Auth attempt for SSH username: %s", ssh_username)
 
-    # 1. Validate username format — reject bots, root, admin, etc.
+    # 1. Validate username format: reject bots, root, admin, etc.
     if not USERNAME_RE.match(ssh_username):
         logger.warning("Rejected username (bad format): %s", ssh_username)
         return jsonify({"success": False})
@@ -137,7 +151,7 @@ def password():
             return jsonify({"success": False})
 
     logger.info("Auth success for %s (admin=%s)", jhub_username, is_admin)
-    return jsonify({"success": True})
+    return jsonify({"success": True, "authenticatedUsername": jhub_username})
 
 
 if __name__ == "__main__":

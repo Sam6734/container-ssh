@@ -1,0 +1,57 @@
+jupyterhub:
+  url: "http://hub.cmsaf-dev.svc.cluster.local:8081"
+  adminTokenSecret:
+    name: containerssh
+    key: jhub-admin-token
+  userNamespace: "cmsaf-dev"
+
+service:
+  type: LoadBalancer
+  port: 2222
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: ssh.cmsaf-dev.flatiron.hollandhpc.org
+  loadBalancerIP: ""
+
+ssh:
+  hostKeySecret:
+    name: containerssh
+    key: host-key
+  banner:
+    title: "Coffea Casa SSH Gateway  (cmsaf-dev)"
+    usernameExample: "firstname-last-unl-edu"
+    tokenUrl: "https://hub.cmsaf-dev.flatiron.hollandhpc.org/hub/token"
+
+secret:
+  create: false
+
+tokens:
+  maxAgeDays: 7
+  cleanup:
+    enabled: true
+    schedule: "0 2 * * *"
+    dryRun: false
+
+launcher:
+  podName: containerssh-launcher
+
+image:
+  auth:
+    repository: ghcr.io/sam6734/containerssh-auth
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  config:
+    repository: ghcr.io/sam6734/containerssh-config
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  launcher:
+    repository: ghcr.io/sam6734/containerssh-launcher
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  containerssh:
+    repository: containerssh/containerssh
+    tag: "0.6.1"
+    pullPolicy: IfNotPresent
+
+rbac:
+  create: true
+  serviceAccountName: containerssh

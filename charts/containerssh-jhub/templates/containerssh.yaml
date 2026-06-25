@@ -8,10 +8,12 @@ metadata:
 data:
   config.yaml: |
     log:
-      level: info
+      level: debug
+      format: text
     ssh:
+      listen: "0.0.0.0:2222"
       hostkeys:
-        - /etc/containerssh/host-key
+        - /etc/containerssh/host_key
       banner: |
         ╔═══════════════════════════════════════════════════════════╗
         ║  {{ printf "%-55s" .Values.ssh.banner.title }}  ║
@@ -20,19 +22,28 @@ data:
         ║             e.g.  {{ printf "%-45s" .Values.ssh.banner.usernameExample }}  ║
         ║  Password : your JupyterHub API token                     ║
         ║                                                           ║
-        ║  Tokens expire after {{ printf "%-2d" .Values.tokens.maxAgeDays }} days. If login fails, visit:      ║
+        ║  Tokens expire after {{ printf "%-2d" (int .Values.tokens.maxAgeDays) }} days. If login fails, visit:      ║
         ║  {{ printf "%-55s" .Values.ssh.banner.tokenUrl }}  ║
         ╚═══════════════════════════════════════════════════════════╝
     auth:
-      url: http://{{ include "containerssh-jhub.fullname" . }}-auth:8080
+      password:
+        method: webhook
+        webhook:
+          url: http://{{ include "containerssh-jhub.fullname" . }}-auth:8080
+          timeout: 60s
     configserver:
-      url: http://{{ include "containerssh-jhub.fullname" . }}-config:8080
+      url: http://{{ include "containerssh-jhub.fullname" . }}-config:8080/
+      timeout: 180s
     backend: kubernetes
     kubernetes:
       connection:
         host: kubernetes.default.svc
         cacertFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
         bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      pod:
+        metadata:
+          namespace: {{ include "containerssh-jhub.namespace" . | quote }}
+        mode: persistent
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -67,7 +78,7 @@ spec:
               mountPath: /etc/containerssh/config.yaml
               subPath: config.yaml
             - name: host-key
-              mountPath: /etc/containerssh/host-key
+              mountPath: /etc/containerssh/host_key
               subPath: {{ .Values.ssh.hostKeySecret.key }}
           resources:
             {{- toYaml .Values.resources.containerssh | nindent 12 }}

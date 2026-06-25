@@ -35,6 +35,17 @@ ssh:
     # URL where users can get/refresh their API token
     tokenUrl: "https://yourhub.example.org/hub/token"
 
+# Optional secret creation. By default, the chart expects you to create the
+# referenced secrets yourself. Set create=true for test installs or simple
+# standalone deployments.
+secret:
+  create: false
+  annotations: {}
+  # Plain text JupyterHub admin API token. Required when secret.create=true.
+  jupyterhubAdminToken: ""
+  # Plain text SSH private host key. Required when secret.create=true.
+  sshHostKey: ""
+
 # Token expiry policy (applies to non-admin users only)
 tokens:
   maxAgeDays: 7
@@ -66,7 +77,7 @@ image:
     pullPolicy: IfNotPresent
   containerssh:
     repository: containerssh/containerssh
-    tag: "0.6.1"
+    tag: "v0.6"
     pullPolicy: IfNotPresent
 
 # Resource limits

@@ -55,6 +55,18 @@ helm install containerssh-jhub ./charts/containerssh-jhub \
   --set service.annotations."external-dns\.alpha\.kubernetes\.io/hostname"=ssh.yourcluster.example.org
 ```
 
+For a Flatiron/coffea-casa style install, start from:
+
+```bash
+helm upgrade --install containerssh ./charts/containerssh-jhub \
+  --namespace <your-namespace> \
+  -f charts/containerssh-jhub/examples/flatiron-values.yaml
+```
+
+Concrete examples for the current Flatiron namespaces are also included:
+`charts/containerssh-jhub/examples/cmsaf-dev-values.yaml` and
+`charts/containerssh-jhub/examples/cmsaf-prod-values.yaml`.
+
 ### 3. Connect
 
 ```bash
@@ -71,6 +83,9 @@ Use your email with `@` and `.` replaced by `-` as the username, and your Jupyte
 | `jupyterhub.adminTokenSecret.name` | `containerssh` | Secret containing the admin token |
 | `jupyterhub.adminTokenSecret.key` | `jhub-admin-token` | Key in the secret |
 | `jupyterhub.userNamespace` | *(Release namespace)* | Namespace where Jupyter user pods run |
+| `secret.create` | `false` | Create the referenced Kubernetes secret(s) from values |
+| `secret.jupyterhubAdminToken` | `""` | Plain text JupyterHub admin token, required if `secret.create=true` |
+| `secret.sshHostKey` | `""` | Plain text SSH private host key, required if `secret.create=true` |
 | `service.type` | `LoadBalancer` | `LoadBalancer` or `NodePort` |
 | `service.port` | `2222` | External SSH port |
 | `service.annotations` | `{}` | Service annotations (e.g. ExternalDNS, HAProxy) |
@@ -149,3 +164,7 @@ docker build -t containerssh-auth docker/auth/
 docker build -t containerssh-config docker/config/
 docker build -t containerssh-launcher docker/launcher/
 ```
+
+## Publishing
+
+Pushing a tag such as `v0.1.0` builds the Docker images and publishes them to GHCR. The Helm chart release workflow packages `charts/containerssh-jhub` and publishes the chart index to the repository's `gh-pages` branch.

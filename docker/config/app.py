@@ -11,10 +11,11 @@ NAMESPACE = os.environ.get("NAMESPACE", "default")
 LAUNCHER_POD_NAME = os.environ.get("LAUNCHER_POD_NAME", "containerssh-launcher")
 
 
+@app.route("/", methods=["POST"])
 @app.route("/config", methods=["POST"])
 def config():
     data = request.get_json(force=True, silent=True) or {}
-    username = data.get("username", "")
+    username = data.get("authenticatedUsername") or data.get("username", "")
     remote_address = data.get("remoteAddress", "")
     connection_id = data.get("connectionId", "")
 
