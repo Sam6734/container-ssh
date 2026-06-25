@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    log:
+      level: info
+    ssh:
+      hostkeys:
+        - /etc/containerssh/host-key
+      banner: |
+        ╔═══════════════════════════════════════════════════════════╗
+        ║  {{ printf "%-55s" .Values.ssh.banner.title }}  ║
+        ╠═══════════════════════════════════════════════════════════╣
+        ║  Username : your email, @ and . replaced by -             ║
+        ║             e.g.  {{ printf "%-45s" .Values.ssh.banner.usernameExample }}  ║
+        ║  Password : your JupyterHub API token                     ║
+        ║                                                           ║
+        ║  Tokens expire after {{ printf "%-2d" .Values.tokens.maxAgeDays }} days. If login fails, visit:      ║
+        ║  {{ printf "%-55s" .Values.ssh.banner.tokenUrl }}  ║
+        ╚═══════════════════════════════════════════════════════════╝
+    auth:
+      url: http://{{ include "containerssh-jhub.fullname" . }}-auth:8080
+    configserver:
+      url: http://{{ include "containerssh-jhub.fullname" . }}-config:8080
+    backend: kubernetes
+    kubernetes:
+      connection:
+        host: kubernetes.default.svc
+        cacertFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+    app: containerssh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "containerssh-jhub.selectorLabels" . | nindent 6 }}
+      app: containerssh
+  template:
+    metadata:
+      labels:
+        {{- include "containerssh-jhub.selectorLabels" . | nindent 8 }}
+        app: containerssh
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+      containers:
+        - name: containerssh
+          image: {{ .Values.image.containerssh.repository }}:{{ .Values.image.containerssh.tag }}
+          imagePullPolicy: {{ .Values.image.containerssh.pullPolicy }}
+          ports:
+            - name: ssh
+              containerPort: 2222
+          volumeMounts:
+            - name: config
+              mountPath: /etc/containerssh/config.yaml
+              subPath: config.yaml
+            - name: host-key
+              mountPath: /etc/containerssh/host-key
+              subPath: {{ .Values.ssh.hostKeySecret.key }}
+          resources:
+            {{- toYaml .Values.resources.containerssh | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "containerssh-jhub.fullname" . }}-config
+        - name: host-key
+          secret:
+            secretName: {{ .Values.ssh.hostKeySecret.name }}
+            defaultMode: 0600
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if .Values.service.loadBalancerIP }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
+  {{- end }}
+  ports:
+    - name: ssh
+      port: {{ .Values.service.port }}
+      targetPort: 2222
+  selector:
+    {{- include "containerssh-jhub.selectorLabels" . | nindent 4 }}
+    app: containerssh

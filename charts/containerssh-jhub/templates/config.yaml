@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+    app: containerssh-config
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "containerssh-jhub.selectorLabels" . | nindent 6 }}
+      app: containerssh-config
+  template:
+    metadata:
+      labels:
+        {{- include "containerssh-jhub.selectorLabels" . | nindent 8 }}
+        app: containerssh-config
+    spec:
+      containers:
+        - name: config
+          image: {{ .Values.image.config.repository }}:{{ .Values.image.config.tag }}
+          imagePullPolicy: {{ .Values.image.config.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: LAUNCHER_POD_NAME
+              value: {{ .Values.launcher.podName | quote }}
+          resources:
+            {{- toYaml .Values.resources.config | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    {{- include "containerssh-jhub.selectorLabels" . | nindent 4 }}
+    app: containerssh-config

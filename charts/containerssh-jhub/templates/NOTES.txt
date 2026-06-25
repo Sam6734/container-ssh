@@ -1,0 +1,25 @@
+ContainerSSH JupyterHub gateway deployed!
+
+SSH endpoint:
+{{- if eq .Values.service.type "LoadBalancer" }}
+  Run: kubectl get svc {{ include "containerssh-jhub.fullname" . }} -n {{ .Release.Namespace }}
+  Then connect: ssh -p {{ .Values.service.port }} <your-username>@<EXTERNAL-IP>
+{{- else if eq .Values.service.type "NodePort" }}
+  Run: kubectl get svc {{ include "containerssh-jhub.fullname" . }} -n {{ .Release.Namespace }}
+  Then connect via the NodePort shown.
+{{- end }}
+
+Username format:  your email with @ and . replaced by -
+                  e.g. {{ .Values.ssh.banner.usernameExample }}
+Password:         your JupyterHub API token (get one at {{ .Values.ssh.banner.tokenUrl }})
+
+Tokens expire after {{ .Values.tokens.maxAgeDays }} days for non-admin users.
+{{- if .Values.tokens.cleanup.enabled }}
+Stale token cleanup runs on schedule: {{ .Values.tokens.cleanup.schedule }}
+{{- end }}
+
+Pre-requisite secret (create before installing):
+  kubectl create secret generic {{ .Values.ssh.hostKeySecret.name }} \
+    --from-file=host-key=<path-to-ed25519-private-key> \
+    --from-literal={{ .Values.jupyterhub.adminTokenSecret.key }}=<jhub-admin-token> \
+    -n {{ .Release.Namespace }}

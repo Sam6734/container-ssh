@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+    app: containerssh-auth
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "containerssh-jhub.selectorLabels" . | nindent 6 }}
+      app: containerssh-auth
+  template:
+    metadata:
+      labels:
+        {{- include "containerssh-jhub.selectorLabels" . | nindent 8 }}
+        app: containerssh-auth
+    spec:
+      containers:
+        - name: auth
+          image: {{ .Values.image.auth.repository }}:{{ .Values.image.auth.tag }}
+          imagePullPolicy: {{ .Values.image.auth.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: JHUB_URL
+              value: {{ .Values.jupyterhub.url | quote }}
+            - name: TOKEN_MAX_AGE_DAYS
+              value: {{ .Values.tokens.maxAgeDays | quote }}
+            - name: JHUB_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.jupyterhub.adminTokenSecret.name }}
+                  key: {{ .Values.jupyterhub.adminTokenSecret.key }}
+          resources:
+            {{- toYaml .Values.resources.auth | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    {{- include "containerssh-jhub.selectorLabels" . | nindent 4 }}
+    app: containerssh-auth

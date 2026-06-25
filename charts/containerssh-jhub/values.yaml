@@ -1,0 +1,90 @@
+# JupyterHub connection
+jupyterhub:
+  # Internal service URL of the JupyterHub hub pod
+  url: "http://hub:8081"
+  # Kubernetes secret containing the JupyterHub admin API token
+  adminTokenSecret:
+    name: containerssh
+    key: jhub-admin-token
+  # Namespace where JupyterHub user pods run (defaults to Release.Namespace)
+  userNamespace: ""
+
+# SSH service configuration
+service:
+  type: LoadBalancer
+  port: 2222
+  # Annotations for the SSH LoadBalancer service.
+  # For MetalLB + ExternalDNS:
+  #   external-dns.alpha.kubernetes.io/hostname: ssh.mycluster.example.org
+  # For HAProxy ingress (add TCPProxy separately):
+  #   haproxy.org/check: "true"
+  annotations: {}
+  # Optional: pin to a specific external IP (MetalLB)
+  loadBalancerIP: ""
+
+# SSH host key — must reference an existing secret with a PEM private key
+ssh:
+  hostKeySecret:
+    name: containerssh
+    key: host-key
+  # Banner shown to users before authentication
+  banner:
+    title: "JupyterHub SSH Gateway"
+    # Example username shown in banner (email with @ and . replaced by -)
+    usernameExample: "firstname-last-institution-edu"
+    # URL where users can get/refresh their API token
+    tokenUrl: "https://yourhub.example.org/hub/token"
+
+# Token expiry policy (applies to non-admin users only)
+tokens:
+  maxAgeDays: 7
+  cleanup:
+    enabled: true
+    # Cron schedule for the cleanup job
+    schedule: "0 2 * * *"
+    # Set to true to log what would be deleted without deleting
+    dryRun: false
+
+# Launcher pod — ContainerSSH persistent pod that bridges SSH to JupyterHub pods
+launcher:
+  # Name of the launcher pod (must match ContainerSSH config webhook output)
+  podName: containerssh-launcher
+
+# Images
+image:
+  auth:
+    repository: ghcr.io/sam6734/containerssh-auth
+    tag: latest
+    pullPolicy: IfNotPresent
+  config:
+    repository: ghcr.io/sam6734/containerssh-config
+    tag: latest
+    pullPolicy: IfNotPresent
+  launcher:
+    repository: ghcr.io/sam6734/containerssh-launcher
+    tag: latest
+    pullPolicy: IfNotPresent
+  containerssh:
+    repository: containerssh/containerssh
+    tag: "0.6.1"
+    pullPolicy: IfNotPresent
+
+# Resource limits
+resources:
+  auth:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+  config:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+  launcher:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  containerssh:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+# RBAC — the containerssh service account needs to exec into user pods
+rbac:
+  create: true
+  serviceAccountName: containerssh

@@ -1,0 +1,114 @@
+{{- if .Values.tokens.cleanup.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+data:
+  cleanup.py: |
+    #!/usr/bin/env python3
+    """Delete non-admin JupyterHub tokens older than TOKEN_MAX_AGE_DAYS days."""
+    import json, os, sys, time, urllib.parse, urllib.request, urllib.error
+    from datetime import datetime, timezone
+
+    JHUB_URL      = os.environ["JHUB_URL"]
+    ADMIN_TOKEN   = os.environ["JHUB_ADMIN_TOKEN"]
+    MAX_AGE_DAYS  = int(os.environ.get("TOKEN_MAX_AGE_DAYS", "7"))
+    DRY_RUN       = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
+    NOW           = datetime.now(timezone.utc)
+
+    def jhub(method, path, data=None):
+        body = json.dumps(data).encode() if data is not None else None
+        req = urllib.request.Request(
+            f"{JHUB_URL}/hub/api{path}", data=body, method=method,
+            headers={"Authorization": f"token {ADMIN_TOKEN}",
+                     **({"Content-Type": "application/json"} if body else {})},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                try: return r.status, json.loads(r.read())
+                except: return r.status, {}
+        except urllib.error.HTTPError as e:
+            return e.code, {}
+
+    def age_days(created_str):
+        if not created_str:
+            return float("inf")
+        try:
+            dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+            return (NOW - dt).total_seconds() / 86400
+        except Exception:
+            return float("inf")
+
+    if DRY_RUN:
+        print("DRY RUN mode — no tokens will be deleted")
+
+    _, users = jhub("GET", "/users?limit=200")
+    if not isinstance(users, list):
+        print(f"Failed to list users", file=sys.stderr)
+        sys.exit(1)
+
+    deleted = 0
+    for user in users:
+        if user.get("admin"):
+            continue
+        name = user["name"]
+        enc  = urllib.parse.quote(name, safe="")
+        _, tokens = jhub("GET", f"/users/{enc}/tokens")
+        if not isinstance(tokens, list):
+            continue
+        for tok in tokens:
+            age = age_days(tok.get("created"))
+            if age > MAX_AGE_DAYS:
+                tid = tok.get("id", "")
+                print(f"{'[DRY RUN] ' if DRY_RUN else ''}Deleting token {tid} "
+                      f"for {name} (age {age:.1f}d)")
+                if not DRY_RUN:
+                    jhub("DELETE", f"/users/{enc}/tokens/{tid}")
+                    deleted += 1
+                    time.sleep(0.1)
+
+    print(f"Done. {deleted} token(s) deleted.")
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-token-cleanup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.tokens.cleanup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: cleanup
+              image: python:3.12-slim
+              command: [python3, /scripts/cleanup.py]
+              env:
+                - name: JHUB_URL
+                  value: {{ .Values.jupyterhub.url | quote }}
+                - name: TOKEN_MAX_AGE_DAYS
+                  value: {{ .Values.tokens.maxAgeDays | quote }}
+                - name: DRY_RUN
+                  value: {{ .Values.tokens.cleanup.dryRun | quote }}
+                - name: JHUB_ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.jupyterhub.adminTokenSecret.name }}
+                      key: {{ .Values.jupyterhub.adminTokenSecret.key }}
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "containerssh-jhub.fullname" . }}-cleanup
+                defaultMode: 0755
+{{- end }}

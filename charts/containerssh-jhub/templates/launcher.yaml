@@ -1,0 +1,29 @@
+# Bare Pod so ContainerSSH can find it by exact name.
+# Deployments append a random hash suffix; a named Pod does not.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Values.launcher.podName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+    app: containerssh-launcher
+spec:
+  restartPolicy: Always
+  serviceAccountName: {{ .Values.rbac.serviceAccountName }}
+  containers:
+    - name: launcher
+      image: {{ .Values.image.launcher.repository }}:{{ .Values.image.launcher.tag }}
+      imagePullPolicy: {{ .Values.image.launcher.pullPolicy }}
+      env:
+        - name: JHUB_URL
+          value: {{ .Values.jupyterhub.url | quote }}
+        - name: NAMESPACE
+          value: {{ default .Release.Namespace .Values.jupyterhub.userNamespace | quote }}
+        - name: JHUB_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.jupyterhub.adminTokenSecret.name }}
+              key: {{ .Values.jupyterhub.adminTokenSecret.key }}
+      resources:
+        {{- toYaml .Values.resources.launcher | nindent 8 }}
