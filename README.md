@@ -64,8 +64,8 @@ helm upgrade --install containerssh ./charts/containerssh-jhub \
 ```
 
 Concrete examples for the current Flatiron namespaces are also included:
-`charts/containerssh-jhub/examples/cmsaf-dev-values.yaml` and
-`charts/containerssh-jhub/examples/cmsaf-prod-values.yaml`.
+`charts/containerssh-jhub/examples/cmsaf-dev/` and
+`charts/containerssh-jhub/examples/cmsaf-prod/`.
 
 ### 3. Connect
 
