@@ -13,7 +13,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 JHUB_URL = os.environ.get("JHUB_URL", "http://hub:8081")
-JHUB_ADMIN_TOKEN = os.environ.get("JHUB_ADMIN_TOKEN", "")
+# Scoped JupyterHub service token (see README "Registering the JupyterHub
+# service"). Login validation uses the user's own token; this is only a
+# fallback for the token-age check when the user's token can't list itself.
+JHUB_SERVICE_TOKEN = os.environ.get("JHUB_ADMIN_TOKEN", "")
 TOKEN_MAX_AGE_DAYS = int(os.environ.get("TOKEN_MAX_AGE_DAYS", "7"))
 
 # Matches emails-as-usernames like sam-albin-unl-edu (no bots like root, admin)
@@ -28,50 +31,41 @@ def normalize_username(email: str) -> str:
     return email.replace("@", "-").replace(".", "-")
 
 
-def get_user_info(username: str, admin_token: str, jhub_url: str) -> dict | None:
-    """Fetch JupyterHub user record for *username* using the admin token."""
-    enc = quote(username, safe="")
-    url = f"{jhub_url}/hub/api/users/{enc}"
-    headers = {"Authorization": f"token {admin_token}"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code == 200:
-            return resp.json()
-        logger.warning("get_user_info %s: HTTP %s", username, resp.status_code)
-    except requests.RequestException as exc:
-        logger.error("get_user_info request failed: %s", exc)
-    return None
-
-
 def has_recent_token(
-    username: str, admin_token: str, jhub_url: str, max_age_days: int
-) -> bool:
-    """Return True if the user has at least one token created within *max_age_days* days."""
+    username: str, auth_token: str, jhub_url: str, max_age_days: int
+) -> bool | None:
+    """Return True if the user has a token created within *max_age_days* days.
+
+    Returns None (rather than False) when the token list could not be
+    fetched, so the caller can distinguish "no recent token" from
+    "couldn't check" and fall back to another credential.
+    """
     enc = quote(username, safe="")
     url = f"{jhub_url}/hub/api/users/{enc}/tokens"
-    headers = {"Authorization": f"token {admin_token}"}
+    headers = {"Authorization": f"token {auth_token}"}
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=max_age_days)
     try:
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200:
             logger.warning("has_recent_token %s: HTTP %s", username, resp.status_code)
-            return False
+            return None
         tokens = resp.json()
-        for token in tokens:
-            created_str = token.get("created")
-            if not created_str:
-                continue
-            # JupyterHub returns ISO 8601, e.g. "2024-01-15T12:00:00.000000Z"
-            try:
-                created = datetime.fromisoformat(
-                    created_str.replace("Z", "+00:00")
-                )
-                if created >= cutoff:
-                    return True
-            except ValueError:
-                logger.warning("Unparseable token created time: %s", created_str)
     except requests.RequestException as exc:
         logger.error("has_recent_token request failed: %s", exc)
+        return None
+    for token in tokens:
+        created_str = token.get("created")
+        if not created_str:
+            continue
+        # JupyterHub returns ISO 8601, e.g. "2024-01-15T12:00:00.000000Z"
+        try:
+            created = datetime.fromisoformat(
+                created_str.replace("Z", "+00:00")
+            )
+            if created >= cutoff:
+                return True
+        except ValueError:
+            logger.warning("Unparseable token created time: %s", created_str)
     return False
 
 
@@ -96,32 +90,47 @@ def password():
 
     logger.info("Auth attempt for SSH username: %s", ssh_username)
 
+    # Normalize: accept email form (sam.albin@unl.edu) or already-dashed form
+    ssh_username = normalize_username(ssh_username)
+
     # 1. Validate username format: reject bots, root, admin, etc.
     if not USERNAME_RE.match(ssh_username):
         logger.warning("Rejected username (bad format): %s", ssh_username)
         return jsonify({"success": False})
 
-    # 2. Validate the token against JupyterHub and retrieve the JupyterHub username.
-    token_url = f"{JHUB_URL}/hub/api/authorizations/token/{quote(token, safe='')}"
-    headers = {"Authorization": f"token {JHUB_ADMIN_TOKEN}"}
+    # 2. Validate the token by asking JupyterHub who owns it, authenticating
+    #    as the user. A valid token returns its owner's user model (including
+    #    admin status), so no admin/service credential is needed to log in.
     try:
-        token_resp = requests.get(token_url, headers=headers, timeout=10)
+        user_resp = requests.get(
+            f"{JHUB_URL}/hub/api/user",
+            headers={"Authorization": f"token {token}"},
+            timeout=10,
+        )
     except requests.RequestException as exc:
         logger.error("Token validation request failed: %s", exc)
         return jsonify({"success": False})
 
-    if token_resp.status_code != 200:
+    if user_resp.status_code != 200:
         logger.warning(
             "Token validation failed for %s: HTTP %s",
             ssh_username,
-            token_resp.status_code,
+            user_resp.status_code,
         )
         return jsonify({"success": False})
 
-    token_data = token_resp.json()
-    jhub_username = token_data.get("name", "")
+    user = user_resp.json()
+    if user.get("kind", "user") != "user":
+        logger.warning(
+            "Rejected non-user token for %s (kind=%s)",
+            ssh_username,
+            user.get("kind"),
+        )
+        return jsonify({"success": False})
+
+    jhub_username = user.get("name", "")
     if not jhub_username:
-        logger.warning("Token response missing 'name' field")
+        logger.warning("User response missing 'name' field")
         return jsonify({"success": False})
 
     # 3. Confirm the token belongs to the SSH user who is logging in.
@@ -134,15 +143,20 @@ def password():
         )
         return jsonify({"success": False})
 
-    # 4. Fetch full user info to check admin status.
-    user_info = get_user_info(jhub_username, JHUB_ADMIN_TOKEN, JHUB_URL)
-    is_admin = bool(user_info and user_info.get("admin", False))
+    is_admin = bool(user.get("admin", False))
 
-    # 5. Non-admins must have a token created within TOKEN_MAX_AGE_DAYS.
+    # 4. Non-admins must have a token created within TOKEN_MAX_AGE_DAYS.
+    #    Check with the user's own token; fall back to the service token if
+    #    the user's token lacks the scope to list itself.
     if not is_admin:
-        if not has_recent_token(
-            jhub_username, JHUB_ADMIN_TOKEN, JHUB_URL, TOKEN_MAX_AGE_DAYS
-        ):
+        recent = has_recent_token(
+            jhub_username, token, JHUB_URL, TOKEN_MAX_AGE_DAYS
+        )
+        if recent is None and JHUB_SERVICE_TOKEN:
+            recent = has_recent_token(
+                jhub_username, JHUB_SERVICE_TOKEN, JHUB_URL, TOKEN_MAX_AGE_DAYS
+            )
+        if not recent:
             logger.warning(
                 "No recent token for non-admin user %s (max_age=%s days)",
                 jhub_username,

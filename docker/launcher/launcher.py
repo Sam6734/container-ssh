@@ -110,10 +110,26 @@ def start_server(profile_slug=None):
     return False
 
 def find_pod_name(user_data):
+    # state is an admin-only field; try it first, fall back to k8s label lookup
     try:
         pod_name = user_data["servers"][""]["state"]["pod_name"]
         if pod_name: return pod_name
     except (KeyError, TypeError): pass
+    try:
+        from kubernetes import client as k8s_client, config as k8s_config
+        try: k8s_config.load_incluster_config()
+        except: k8s_config.load_kube_config()
+        core = k8s_client.CoreV1Api()
+        safe = re.sub(r"[^a-z0-9]", "-", USERNAME.lower())
+        prefix = f"jupyter-{re.sub(r'-+', '-', safe).strip('-')}"
+        pods = core.list_namespaced_pod(
+            NAMESPACE, label_selector="component=singleuser-server"
+        )
+        for p in pods.items:
+            if p.metadata.name.startswith(prefix) and p.status.phase in ("Running", "Pending"):
+                return p.metadata.name
+    except Exception:
+        pass
     safe = re.sub(r"[^a-z0-9]", "-", USERNAME.lower())
     return f"jupyter-{re.sub(r'-+', '-', safe).strip('-')}"
 
