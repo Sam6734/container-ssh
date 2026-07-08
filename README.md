@@ -157,6 +157,13 @@ Images are published to GitHub Container Registry:
 | `ghcr.io/sam6734/containerssh-config` | Config webhook (Flask) |
 | `ghcr.io/sam6734/containerssh-launcher` | Interactive launcher shell |
 
+The launcher image is intentionally more than just the Python launcher script. It
+must include `containerssh-agent` at `/usr/bin/containerssh-agent`, because
+ContainerSSH uses that agent when it execs into the persistent launcher pod. The
+Dockerfile also creates `/usr/bin/jupyterhub-singleuser` as a symlink to
+`/usr/local/bin/jupyterhub-singleuser` for compatibility with JupyterHub-style
+images.
+
 ## Building locally
 
 ```bash
