@@ -2,7 +2,9 @@
 jupyterhub:
   # Internal service URL of the JupyterHub hub pod
   url: "http://hub:8081"
-  # Kubernetes secret containing the JupyterHub admin API token
+  # Kubernetes secret containing the JupyterHub API token. Preferably a
+  # scoped service token registered in the JupyterHub config (scopes:
+  # read:users, servers, tokens) — a personal admin token also works.
   adminTokenSecret:
     name: containerssh
     key: jhub-admin-token
@@ -36,14 +38,18 @@ ssh:
     tokenUrl: "https://yourhub.example.org/hub/token"
 
 # Optional secret creation. By default, the chart expects you to create the
-# referenced secrets yourself. Set create=true for test installs or simple
-# standalone deployments.
+# referenced secrets yourself. With create=true the chart manages them:
+# values left empty are auto-generated (random API token, RSA host key),
+# values already present in an existing secret are preserved across
+# upgrades, and the secrets are kept on uninstall (helm.sh/resource-policy).
 secret:
   create: false
   annotations: {}
-  # Plain text JupyterHub admin API token. Required when secret.create=true.
+  # Plain text JupyterHub API token. Leave empty to auto-generate; after
+  # install, register the generated token as a JupyterHub service token
+  # (see README "Registering the JupyterHub service").
   jupyterhubAdminToken: ""
-  # Plain text SSH private host key. Required when secret.create=true.
+  # Plain text SSH private host key (PEM). Leave empty to auto-generate.
   sshHostKey: ""
 
 # Token expiry policy (applies to non-admin users only)

@@ -21,8 +21,12 @@ ssh:
     usernameExample: "firstname-last-unl-edu"
     tokenUrl: "https://hub.cmsaf-dev.flatiron.hollandhpc.org/hub/token"
 
+# The chart manages the secret: the API token was auto-generated on install
+# and is preserved across upgrades. The same token is registered as the
+# `containerssh` JupyterHub service in the z2jh values (coffea-casa-config),
+# and the secret itself is committed there as a SealedSecret.
 secret:
-  create: false
+  create: true
 
 tokens:
   maxAgeDays: 7
@@ -37,15 +41,15 @@ launcher:
 image:
   auth:
     repository: ghcr.io/sam6734/containerssh-auth
-    tag: "0.1.0"
+    tag: "0.2.0"
     pullPolicy: IfNotPresent
   config:
     repository: ghcr.io/sam6734/containerssh-config
-    tag: "0.1.0"
+    tag: "0.2.0"
     pullPolicy: IfNotPresent
   launcher:
     repository: ghcr.io/sam6734/containerssh-launcher
-    tag: "0.1.0"
+    tag: "0.2.0"
     pullPolicy: IfNotPresent
   containerssh:
     repository: containerssh/containerssh
