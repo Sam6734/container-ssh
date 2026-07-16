@@ -45,9 +45,17 @@ def get_profiles():
         )
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
+                final_url = r.geturl()
                 html = r.read().decode("utf-8", errors="replace")
         except Exception as e:
             print(f"  Warning: could not fetch profiles ({e})\r\n")
+            return []
+        if "/hub/login" in final_url:
+            # Hub demanded a fresh web login (auth_refresh_age) — the image
+            # list is only available with fresh upstream auth.
+            print("  Image list unavailable: JupyterHub wants a fresh web login.\r\n"
+                  "  Log in to the hub in your browser to pick an image;\r\n"
+                  "  starting the default image for now.\r\n")
             return []
         profiles = []
         pattern = re.compile(
@@ -110,7 +118,9 @@ def start_server(profile_slug=None):
     return False
 
 def find_pod_name(user_data):
-    # state is an admin-only field; try it first, fall back to k8s label lookup
+    # KubeSpawner state has the authoritative pod name (needs the
+    # admin:server_state scope); fall back to a k8s lookup by the
+    # hub.jupyter.org/username annotation, which holds the raw username.
     try:
         pod_name = user_data["servers"][""]["state"]["pod_name"]
         if pod_name: return pod_name
@@ -120,18 +130,18 @@ def find_pod_name(user_data):
         try: k8s_config.load_incluster_config()
         except: k8s_config.load_kube_config()
         core = k8s_client.CoreV1Api()
-        safe = re.sub(r"[^a-z0-9]", "-", USERNAME.lower())
-        prefix = f"jupyter-{re.sub(r'-+', '-', safe).strip('-')}"
         pods = core.list_namespaced_pod(
             NAMESPACE, label_selector="component=singleuser-server"
         )
         for p in pods.items:
-            if p.metadata.name.startswith(prefix) and p.status.phase in ("Running", "Pending"):
+            if (p.metadata.annotations or {}).get("hub.jupyter.org/username") == USERNAME \
+                    and p.status.phase in ("Running", "Pending"):
                 return p.metadata.name
-    except Exception:
-        pass
-    safe = re.sub(r"[^a-z0-9]", "-", USERNAME.lower())
-    return f"jupyter-{re.sub(r'-+', '-', safe).strip('-')}"
+        print(f"  Warning: no singleuser pod annotated for {USERNAME} "
+              f"among {len(pods.items)} pod(s).\r\n")
+    except Exception as e:
+        print(f"  Warning: pod lookup failed: {e!r}\r\n")
+    return None
 
 def pick_profile():
     profiles = get_profiles()
@@ -236,7 +246,8 @@ def main():
     if server.get("ready"):
         print("  Your Jupyter server is already running.\r\n")
         print("  [1]  Connect to running server\r\n", end="")
-        print("  [2]  Stop server and restart with a new image\r\n\n", end="")
+        print("  [2]  Stop server and restart with a new image\r\n", end="")
+        print("  [3]  Stop server and disconnect\r\n\n", end="")
         try: choice = input("  Choice [1]: ").strip() or "1"
         except (EOFError, KeyboardInterrupt): choice = "1"
         if choice == "2":
@@ -244,12 +255,21 @@ def main():
             profile = pick_profile()
             if not start_server(profile): sys.exit(1)
             user_data = get_user_data()
+        elif choice == "3":
+            print(); stop_server()
+            print("  Server stopped. Goodbye!\r\n")
+            sys.exit(0)
     else:
         print("  Your Jupyter server is not running.\r\n")
         profile = pick_profile()
         if not start_server(profile): sys.exit(1)
         user_data = get_user_data()
-    connect_to_pod(find_pod_name(user_data))
+    pod_name = find_pod_name(user_data)
+    if not pod_name:
+        print("  Error: could not locate your Jupyter pod. Please try again\r\n"
+              "  or contact your administrator.\r\n")
+        sys.exit(1)
+    connect_to_pod(pod_name)
 
 if __name__ == "__main__":
     main()

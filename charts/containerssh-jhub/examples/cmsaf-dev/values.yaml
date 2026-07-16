@@ -41,15 +41,15 @@ launcher:
 image:
   auth:
     repository: ghcr.io/sam6734/containerssh-auth
-    tag: "0.2.0"
+    tag: "0.2.2"
     pullPolicy: IfNotPresent
   config:
     repository: ghcr.io/sam6734/containerssh-config
-    tag: "0.2.0"
+    tag: "0.2.2"
     pullPolicy: IfNotPresent
   launcher:
     repository: ghcr.io/sam6734/containerssh-launcher
-    tag: "0.2.0"
+    tag: "0.2.2"
     pullPolicy: IfNotPresent
   containerssh:
     repository: containerssh/containerssh

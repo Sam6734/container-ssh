@@ -18,8 +18,16 @@ Tokens expire after {{ .Values.tokens.maxAgeDays }} days for non-admin users.
 Stale token cleanup runs on schedule: {{ .Values.tokens.cleanup.schedule }}
 {{- end }}
 
+{{- if .Values.secret.create }}
+The chart manages the {{ .Values.jupyterhub.adminTokenSecret.name }} secret.
+Retrieve the generated API token and register it as a JupyterHub service
+(see README "Register the JupyterHub service"):
+  kubectl get secret {{ .Values.jupyterhub.adminTokenSecret.name }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.data.{{ .Values.jupyterhub.adminTokenSecret.key }}}' | base64 -d
+{{- else }}
 Pre-requisite secret (create before installing):
   kubectl create secret generic {{ .Values.ssh.hostKeySecret.name }} \
     --from-file=host-key=<path-to-ed25519-private-key> \
     --from-literal={{ .Values.jupyterhub.adminTokenSecret.key }}=<jhub-admin-token> \
     -n {{ .Release.Namespace }}
+{{- end }}

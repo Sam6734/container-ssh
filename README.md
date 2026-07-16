@@ -19,7 +19,7 @@ User SSH → ContainerSSH → auth webhook → validates token against JupyterHu
 
 **Components:**
 - **ContainerSSH** — SSH server, delegates auth and pod routing to webhooks
-- **Auth webhook** — validates the supplied JupyterHub API token by calling `/hub/api/user` *as the user*, enforces 7-day expiry for non-admins, rejects bots
+- **Auth webhook** — validates the supplied JupyterHub API token by calling `/hub/api/user` *as the user* (falling back to a service-token lookup for hubs that require fresh upstream OAuth state), enforces 7-day expiry for non-admins, rejects bots
 - **Config webhook** — returns ContainerSSH pod config pointing at the launcher
 - **Launcher pod** — interactive Python shell: checks server status, offers profile picker, starts server, bridges PTY into the user's Jupyter pod
 - **Token cleanup CronJob** — nightly job that deletes non-admin tokens older than N days
@@ -83,7 +83,7 @@ hub:
       apiToken: "<the token>"
   loadRoles:
     containerssh:
-      scopes: [read:users, servers, tokens]
+      scopes: [read:users, list:users, servers, tokens, admin:server_state]
       services: [containerssh]
 ```
 
@@ -213,7 +213,7 @@ hub:
       })
       c.JupyterHub.load_roles.append({
           "name": "containerssh",
-          "scopes": ["read:users", "servers", "tokens"],
+          "scopes": ["read:users", "list:users", "servers", "tokens", "admin:server_state"],
           "services": ["containerssh"],
       })
 ```
@@ -226,7 +226,9 @@ value as the service token.
 
 Non-admin users must use tokens created within the last `tokens.maxAgeDays` days (default: 7). The auth webhook enforces this at login time. The nightly CronJob deletes stale tokens from JupyterHub so they don't accumulate.
 
-Admin users are exempt — their tokens never expire via this mechanism.
+Exempt from cleanup:
+- **Admin users' tokens** — never touched (so tokens used by monitoring or other services on admin accounts are safe)
+- **JupyterHub-internal server tokens** (note `Server at ...`) — deleting a live one would break a long-running server
 
 ## Images
 

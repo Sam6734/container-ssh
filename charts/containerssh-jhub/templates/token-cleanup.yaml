@@ -56,10 +56,16 @@ data:
             continue
         name = user["name"]
         enc  = urllib.parse.quote(name, safe="")
-        _, tokens = jhub("GET", f"/users/{enc}/tokens")
+        _, tok_resp = jhub("GET", f"/users/{enc}/tokens")
+        # JupyterHub >= 2 wraps the list: {"api_tokens": [...]}
+        tokens = tok_resp.get("api_tokens", []) if isinstance(tok_resp, dict) else tok_resp
         if not isinstance(tokens, list):
             continue
         for tok in tokens:
+            # Skip JupyterHub-internal server tokens — deleting a live one
+            # would break a long-running server. Only reap user API tokens.
+            if (tok.get("note") or "").startswith("Server at "):
+                continue
             age = age_days(tok.get("created"))
             if age > MAX_AGE_DAYS:
                 tid = tok.get("id", "")

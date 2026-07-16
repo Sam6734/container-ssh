@@ -49,7 +49,9 @@ def has_recent_token(
         if resp.status_code != 200:
             logger.warning("has_recent_token %s: HTTP %s", username, resp.status_code)
             return None
-        tokens = resp.json()
+        data = resp.json()
+        # JupyterHub >= 2 wraps the list: {"api_tokens": [...]}
+        tokens = data.get("api_tokens", []) if isinstance(data, dict) else data
     except requests.RequestException as exc:
         logger.error("has_recent_token request failed: %s", exc)
         return None
@@ -101,25 +103,43 @@ def password():
     # 2. Validate the token by asking JupyterHub who owns it, authenticating
     #    as the user. A valid token returns its owner's user model (including
     #    admin status), so no admin/service credential is needed to log in.
+    #    Hubs with auth_refresh_age reject user-token API calls once the
+    #    owner's upstream OAuth state goes stale ("Login is required to
+    #    refresh"), so fall back to resolving the token with the service
+    #    token, which is not subject to the owner's auth freshness.
+    user = None
     try:
         user_resp = requests.get(
             f"{JHUB_URL}/hub/api/user",
             headers={"Authorization": f"token {token}"},
             timeout=10,
         )
+        if user_resp.status_code == 200:
+            user = user_resp.json()
+        else:
+            logger.info(
+                "Self-lookup failed for %s (HTTP %s), trying service lookup",
+                ssh_username,
+                user_resp.status_code,
+            )
     except requests.RequestException as exc:
         logger.error("Token validation request failed: %s", exc)
-        return jsonify({"success": False})
 
-    if user_resp.status_code != 200:
-        logger.warning(
-            "Token validation failed for %s: HTTP %s",
-            ssh_username,
-            user_resp.status_code,
-        )
-        return jsonify({"success": False})
+    if user is None and JHUB_SERVICE_TOKEN:
+        try:
+            lookup_resp = requests.get(
+                f"{JHUB_URL}/hub/api/authorizations/token/{quote(token, safe='')}",
+                headers={"Authorization": f"token {JHUB_SERVICE_TOKEN}"},
+                timeout=10,
+            )
+            if lookup_resp.status_code == 200:
+                user = lookup_resp.json()
+        except requests.RequestException as exc:
+            logger.error("Service token lookup failed: %s", exc)
 
-    user = user_resp.json()
+    if user is None:
+        logger.warning("Token validation failed for %s", ssh_username)
+        return jsonify({"success": False})
     if user.get("kind", "user") != "user":
         logger.warning(
             "Rejected non-user token for %s (kind=%s)",
