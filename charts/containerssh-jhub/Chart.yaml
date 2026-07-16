@@ -2,7 +2,7 @@ apiVersion: v2
 name: containerssh-jhub
 description: ContainerSSH SSH gateway for JupyterHub — lets users SSH directly into their Jupyter pods
 type: application
-version: 0.2.0
+version: 0.2.2
 appVersion: "0.6"
 keywords:
   - containerssh
