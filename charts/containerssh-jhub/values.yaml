@@ -67,6 +67,42 @@ launcher:
   # Name of the launcher pod (must match ContainerSSH config webhook output)
   podName: containerssh-launcher
 
+# Direct-to-notebook-pod routing.
+#
+# With this enabled the config webhook execs into the user's own singleuser pod
+# whenever it is already running, so shell, exec (scp, rsync, VS Code
+# Remote-SSH) and subsystem (sftp) requests all reach the user's filesystem.
+# Users with no running server still get the launcher's interactive image
+# picker, and any lookup failure falls back to the launcher too.
+#
+# Requires the ContainerSSH guest agent inside the singleuser pod — deliver it
+# with an initContainer rather than rebuilding every image; see the
+# "Singleuser pod agent" section of the README.
+userPod:
+  enabled: true
+  # Label selector identifying JupyterHub singleuser pods
+  selector: "component=singleuser-server"
+  # Container within the singleuser pod to attach to
+  notebookContainer: notebook
+  # Path to the ContainerSSH guest agent inside the singleuser pod.
+  #
+  # Empty by default, which sends disableAgent and needs no image changes: a
+  # login shell, scp -O and VS Code Remote-SSH all work without the agent, and
+  # TERM comes from the image's own environment. The only real loss is SSH
+  # signal forwarding (interactive Ctrl+C still works — that is the in-container
+  # TTY, not SSH signalling).
+  #
+  # Set this ONLY once the binary is actually present, e.g. via the
+  # initContainer in examples/singleuser-agent-values.yaml. A path that does
+  # not exist is fatal: ContainerSSH execs it and the session dies with no
+  # fallback. An empty value is safe; a wrong value is not.
+  agentPath: ""
+  shellCommand: "/bin/bash -l"
+  # Comma-separated name=path pairs, e.g.
+  # "sftp=/opt/containerssh/sftp-server". Leave empty until the executable
+  # actually exists in the image — a missing binary makes the request fail.
+  subsystems: ""
+
 # Images
 image:
   auth:

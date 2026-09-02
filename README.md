@@ -12,17 +12,78 @@ Built on [ContainerSSH v0.6](https://containerssh.io). Users authenticate with t
 
 ```
 User SSH → ContainerSSH → auth webhook → validates token against JupyterHub
-                        → config webhook → routes to launcher pod
-                        → launcher pod → starts JupyterHub server if needed
+                        → config webhook → server running?
+                             ├── yes → execs straight into the user's pod
+                             └── no  → routes to launcher pod
+                                       → starts JupyterHub server
                                        → execs into jupyter-{username} pod
 ```
 
 **Components:**
 - **ContainerSSH** — SSH server, delegates auth and pod routing to webhooks
 - **Auth webhook** — validates the supplied JupyterHub API token by calling `/hub/api/user` *as the user* (falling back to a service-token lookup for hubs that require fresh upstream OAuth state), enforces 7-day expiry for non-admins, rejects bots
-- **Config webhook** — returns ContainerSSH pod config pointing at the launcher
+- **Config webhook** — finds the user's running singleuser pod and points ContainerSSH at it, falling back to the launcher when there is no ready server
 - **Launcher pod** — interactive Python shell: checks server status, offers profile picker, starts server, bridges PTY into the user's Jupyter pod
 - **Token cleanup CronJob** — nightly job that deletes non-admin tokens older than N days
+
+### Why routing matters for scp / rsync / sftp / VS Code
+
+`shellCommand` only covers the SSH **shell** request. `scp`, `rsync` and VS
+Code Remote-SSH arrive as **exec** requests, and `sftp` as a **subsystem**
+request. Whichever pod ContainerSSH attaches to is where those commands run —
+so while every session went through the launcher, file transfer ran against
+the launcher's filesystem, and VS Code Remote-SSH could not work at all,
+because it execs non-interactively and hit the launcher's image picker.
+
+With `userPod.enabled=true` (the default) the config webhook resolves the
+user's own pod by the `hub.jupyter.org/username` *annotation* — the identically
+named label holds the escaped form, and the pod naming template differs between
+deployments, so the annotation is the only reliable key. `consoleContainerNumber`
+is resolved from `spec.containers` by name, since `status.containerStatuses` is
+not in the same order.
+
+Any failure — lookup error, no server, container not ready — falls back to the
+launcher, so this degrades to the previous behaviour rather than refusing the
+connection.
+
+### Singleuser pod agent (optional)
+
+The guest agent is **not** required to attach to the user's pod. With
+`userPod.agentPath` empty — the default — ContainerSSH runs with
+`disableAgent`, and a login shell, `scp -O` and VS Code Remote-SSH all work
+against unmodified notebook images.
+
+The agent adds two things the Kubernetes exec API cannot do by itself: passing
+client-supplied environment variables (`SendEnv`) into the process, and
+forwarding SSH signals. It is *not* what handles window resizing — that is a
+native exec channel and works regardless. `TERM` normally comes from the
+image's own environment, so in practice signal forwarding is the only gap.
+
+Note the failure asymmetry: an empty `agentPath` is safe, but an `agentPath`
+pointing at a file that is not there is fatal — ContainerSSH execs it and the
+session dies with no fallback. Set it only once the binary is in place.
+
+To install it without rebuilding every notebook image, use an `initContainer`
+that copies the binary into an `emptyDir` shared with the notebook container.
+See
+[`examples/singleuser-agent-values.yaml`](charts/containerssh-jhub/examples/singleuser-agent-values.yaml),
+which merges into your **z2jh** values.
+
+Two things that example gets deliberately right:
+
+- It mounts a **directory** at `/opt/containerssh`, never a `subPath` onto
+  `/usr/bin/containerssh-agent`. A `subPath` whose source file is missing makes
+  kubelet create a *directory* at the mount point, which then shadows any real
+  binary of that name.
+- The copy always `exit 0`s, so a missing agent degrades SSH rather than
+  stopping a user's Jupyter server from starting. Because an unpullable
+  `initContainer` image *would* block startup, the example also adds the image
+  to `prePuller.extraImages`.
+
+`sftp` and `rsync` need executables that current coffea-casa images do not
+ship (`sftp-server` and `rsync` are both absent; `scp` is present). Until they
+are added, leave `userPod.subsystems` empty and use `scp -O`, which forces the
+legacy SCP protocol instead of requesting the sftp subsystem.
 
 Login validation authenticates with the user's own token, so it needs no
 privileged credentials. A scoped **service token** is used by the launcher
@@ -138,6 +199,12 @@ Use your email with `@` and `.` replaced by `-` as the username, and your Jupyte
 | `tokens.cleanup.schedule` | `0 2 * * *` | CronJob schedule |
 | `tokens.cleanup.dryRun` | `false` | Log deletions without deleting |
 | `launcher.podName` | `containerssh-launcher` | Name of the persistent launcher pod |
+| `userPod.enabled` | `true` | Exec into the user's own pod when their server is running |
+| `userPod.selector` | `component=singleuser-server` | Label selector for singleuser pods |
+| `userPod.notebookContainer` | `notebook` | Container within the singleuser pod to attach to |
+| `userPod.agentPath` | `""` | Guest agent path; empty disables the agent. Only set it once the binary exists — a wrong path is fatal |
+| `userPod.shellCommand` | `/bin/bash -l` | Shell run for SSH shell requests |
+| `userPod.subsystems` | `""` | `name=path` pairs, e.g. `sftp=/opt/containerssh/sftp-server` |
 | `image.*.repository` | *(GHCR)* | Image repository for each component |
 | `image.*.tag` | `latest` | Image tag |
 

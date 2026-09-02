@@ -1,0 +1,66 @@
+# ContainerSSH guest agent for JupyterHub singleuser pods.
+#
+# Merge into your *z2jh* values (not this chart's) — these keys configure the
+# JupyterHub release, so that `userPod.enabled=true` in the containerssh-jhub
+# chart has an agent to talk to.
+#
+# Why an initContainer instead of rebuilding the images: the agent is a single
+# static Go binary, and copying it out of the launcher image at spawn time
+# keeps every coffea-casa image unmodified and keeps the agent version pinned
+# to the gateway that uses it.
+#
+# Why copy from the launcher image instead of downloading the release tarball:
+# no network dependency on the spawn path, no sha256 to bump on each agent
+# upgrade, and a GitHub outage cannot delay user logins.
+
+singleuser:
+  initContainers:
+    - name: containerssh-agent
+      # Same image (and therefore same agent build) as the SSH gateway.
+      image: ghcr.io/sam6734/containerssh-launcher:0.2.2
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        # Never fail the pod: a missing agent degrades SSH to "no window
+        # resizing / no signal forwarding", but must not stop a user's Jupyter
+        # server from starting. Hence the `|| :` and the explicit `exit 0`.
+        - |
+          if cp /usr/bin/containerssh-agent /agent/containerssh-agent 2>/dev/null; then
+            chmod 0755 /agent/containerssh-agent || :
+            echo "containerssh-agent installed"
+          else
+            echo "WARNING: containerssh-agent unavailable; SSH will be degraded"
+          fi
+          exit 0
+      volumeMounts:
+        - name: containerssh-agent
+          mountPath: /agent
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+
+  storage:
+    extraVolumes:
+      - name: containerssh-agent
+        emptyDir: {}
+    extraVolumeMounts:
+      # Deliberately a *directory* mount, not a subPath onto /usr/bin. A
+      # subPath whose source file is missing makes kubelet create a directory
+      # at the mount point, which then shadows any real binary of that name.
+      - name: containerssh-agent
+        mountPath: /opt/containerssh
+        readOnly: true
+
+# An initContainer image that cannot be pulled will block the user's server
+# from starting, and the continuous image puller only prepulls singleuser
+# images by default. Prepull the agent image on every node too.
+prePuller:
+  extraImages:
+    containerssh-agent:
+      name: ghcr.io/sam6734/containerssh-launcher
+      tag: "0.2.2"

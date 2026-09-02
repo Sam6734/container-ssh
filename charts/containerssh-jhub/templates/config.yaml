@@ -18,6 +18,7 @@ spec:
         {{- include "containerssh-jhub.selectorLabels" . | nindent 8 }}
         app: containerssh-config
     spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccountName }}
       containers:
         - name: config
           image: {{ .Values.image.config.repository }}:{{ .Values.image.config.tag }}
@@ -29,6 +30,20 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: LAUNCHER_POD_NAME
               value: {{ .Values.launcher.podName | quote }}
+            - name: USER_POD_ENABLED
+              value: {{ .Values.userPod.enabled | quote }}
+            - name: USER_NAMESPACE
+              value: {{ default .Release.Namespace .Values.jupyterhub.userNamespace | quote }}
+            - name: USER_POD_SELECTOR
+              value: {{ .Values.userPod.selector | quote }}
+            - name: NOTEBOOK_CONTAINER
+              value: {{ .Values.userPod.notebookContainer | quote }}
+            - name: AGENT_PATH
+              value: {{ .Values.userPod.agentPath | quote }}
+            - name: SHELL_COMMAND
+              value: {{ .Values.userPod.shellCommand | quote }}
+            - name: SUBSYSTEMS
+              value: {{ .Values.userPod.subsystems | quote }}
           resources:
             {{- toYaml .Values.resources.config | nindent 12 }}
 ---
