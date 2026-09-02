@@ -38,18 +38,33 @@ tokens:
 launcher:
   podName: containerssh-launcher
 
+# Exec straight into the user's own singleuser pod when their server is
+# running, so shell, exec (scp, VS Code Remote-SSH) and subsystem requests all
+# land on their own filesystem. Users with no running server still get the
+# launcher's image picker, and any lookup failure falls back to it too.
+userPod:
+  enabled: true
+  # Intentionally empty: runs with disableAgent, so no notebook image changes
+  # are needed. An empty path is safe; a path to a missing binary is fatal,
+  # because ContainerSSH execs it with no fallback. Set this only once the
+  # initContainer in ../singleuser-agent-values.yaml is in place.
+  agentPath: ""
+  # sftp-server is absent from the coffea-casa images; until it is added,
+  # leave this empty and use "scp -O".
+  subsystems: ""
+
 image:
   auth:
     repository: ghcr.io/sam6734/containerssh-auth
-    tag: "0.2.2"
+    tag: "0.3.0"
     pullPolicy: IfNotPresent
   config:
     repository: ghcr.io/sam6734/containerssh-config
-    tag: "0.2.2"
+    tag: "0.3.0"
     pullPolicy: IfNotPresent
   launcher:
     repository: ghcr.io/sam6734/containerssh-launcher
-    tag: "0.2.2"
+    tag: "0.3.0"
     pullPolicy: IfNotPresent
   containerssh:
     repository: containerssh/containerssh
