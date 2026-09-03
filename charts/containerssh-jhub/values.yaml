@@ -147,3 +147,15 @@ resources:
 rbac:
   create: true
   serviceAccountName: containerssh
+  # Grant create/delete on pods. Not needed in persistent mode, which attaches
+  # to pods that already exist — turn this on only if you configure
+  # kubernetes.pod.createMissingPods.
+  podWriteAccess: false
+
+# NetworkPolicy restricting the auth and config webhooks to the ContainerSSH
+# gateway pod. They are unauthenticated by design, so without this any pod in
+# the namespace — including a user's own notebook pod — can enumerate which
+# users have a running server and guess tokens against /password at unlimited
+# rate. Requires a CNI that enforces NetworkPolicy (e.g. Calico, Cilium).
+networkPolicy:
+  create: true

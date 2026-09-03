@@ -15,9 +15,18 @@ metadata:
   labels:
     {{- include "containerssh-jhub.labels" . | nindent 4 }}
 rules:
+  # Reading pods is what locates the user's singleuser pod and the launcher.
+  # Creating and deleting them is deliberately absent: in persistent mode
+  # ContainerSSH attaches to pods that already exist, the launcher Pod is
+  # created by Helm under your own credentials, and nothing here spawns
+  # singleuser pods — JupyterHub does that with its own service account.
+  # Enable podWriteAccess only if you set kubernetes.pod.createMissingPods.
   - apiGroups: [""]
     resources: [pods]
-    verbs: [get, list, watch, create, delete]
+    verbs: [get, list, watch{{ if .Values.rbac.podWriteAccess }}, create, delete{{ end }}]
+  # This is the privileged one: it grants a shell in any pod in the namespace.
+  # Which pod gets attached is decided by the config webhook from the
+  # authenticated username, never from client input.
   - apiGroups: [""]
     resources: [pods/exec]
     verbs: [create, get]

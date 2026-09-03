@@ -1,0 +1,40 @@
+{{- if .Values.networkPolicy.create }}
+{{- /*
+  The auth and config webhooks are unauthenticated by design — ContainerSSH
+  has no credential to present them. Without a policy any pod in the
+  namespace, including a user's own notebook pod, can reach them and:
+
+    * enumerate which users have a running server (config webhook), and
+    * guess JupyterHub tokens against /password at unlimited rate, bypassing
+      any throttling at the SSH layer (auth webhook).
+
+  Only the ContainerSSH gateway ever needs to call them, so restrict ingress
+  to that pod. Neither Deployment defines a probe, so no kubelet ingress is
+  required.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "containerssh-jhub.fullname" . }}-webhooks
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "containerssh-jhub.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - containerssh-auth
+          - containerssh-config
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: containerssh
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}
