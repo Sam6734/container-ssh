@@ -240,6 +240,22 @@ Use your email with `@` and `.` replaced by `-` as the username, and your Jupyte
 | `userPod.subsystems` | `""` | `name=path` pairs, e.g. `sftp=/opt/containerssh/sftp-server` |
 | `image.*.repository` | *(GHCR)* | Image repository for each component |
 | `image.*.tag` | `latest` | Image tag |
+| `rbac.podWriteAccess` | `false` | Grant `create`/`delete` on pods; only needed with `createMissingPods` |
+| `networkPolicy.create` | `true` | Restrict the webhooks to the gateway pod (needs a NetworkPolicy-enforcing CNI) |
+
+### Webhook exposure
+
+The auth and config webhooks are **unauthenticated by design** — ContainerSSH
+has no credential to present them. Left open, any pod in the namespace,
+including a user's own notebook pod, can enumerate which users have a running
+server and guess JupyterHub tokens against `/password` at unlimited rate,
+bypassing throttling at the SSH layer. `networkPolicy.create` restricts ingress
+to the gateway pod, which is the only legitimate caller.
+
+Note that `pods/exec` remains namespace-wide, because RBAC cannot scope it to a
+pod name. That is the privileged grant to be aware of: which pod gets attached
+is decided by the config webhook from the authenticated username, never from
+client input.
 
 ## Ingress / Load balancing
 
