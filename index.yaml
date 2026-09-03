@@ -3,6 +3,28 @@ entries:
   containerssh-jhub:
   - apiVersion: v2
     appVersion: "0.6"
+    created: "2026-09-03T20:30:43.306984731Z"
+    description: ContainerSSH SSH gateway for JupyterHub — lets users SSH directly
+      into their Jupyter pods
+    digest: 4a01cebf53782b24fb594b8b120bab46068f0886611747b046f5b84043340533
+    home: https://github.com/Sam6734/container-ssh
+    keywords:
+    - containerssh
+    - jupyterhub
+    - ssh
+    - kubernetes
+    maintainers:
+    - email: sam.albin@unl.edu
+      name: Sam Albin
+    name: containerssh-jhub
+    sources:
+    - https://github.com/Sam6734/container-ssh
+    type: application
+    urls:
+    - https://github.com/Sam6734/container-ssh/releases/download/containerssh-jhub-0.3.1/containerssh-jhub-0.3.1.tgz
+    version: 0.3.1
+  - apiVersion: v2
+    appVersion: "0.6"
     created: "2026-09-02T20:06:21.849274357Z"
     description: ContainerSSH SSH gateway for JupyterHub — lets users SSH directly
       into their Jupyter pods
@@ -45,4 +67,4 @@ entries:
     urls:
     - https://github.com/Sam6734/container-ssh/releases/download/containerssh-jhub-0.2.2/containerssh-jhub-0.2.2.tgz
     version: 0.2.2
-generated: "2026-09-02T20:06:21.849289816Z"
+generated: "2026-09-03T20:30:43.306997029Z"
