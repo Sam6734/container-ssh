@@ -98,9 +98,15 @@ userPod:
   # fallback. An empty value is safe; a wrong value is not.
   agentPath: ""
   shellCommand: "/bin/bash -l"
-  # Comma-separated name=path pairs, e.g.
-  # "sftp=/opt/containerssh/sftp-server". Leave empty until the executable
-  # actually exists in the image — a missing binary makes the request fail.
+  # Comma-separated name=path pairs. Setting the sftp subsystem is what makes
+  # plain "scp" and "sftp" work:
+  #   subsystems: "sftp=/opt/containerssh/sftp-server"
+  # ContainerSSH otherwise defaults to /usr/lib/openssh/sftp-server, which does
+  # not exist on AlmaLinux (it uses /usr/libexec/), so plain scp fails with
+  # "executable file not found" and users must pass "scp -O".
+  #
+  # Leave empty until the executable actually exists in the pod — install it
+  # with the initContainer in examples/singleuser-agent-values.yaml.
   subsystems: ""
 
 # Images

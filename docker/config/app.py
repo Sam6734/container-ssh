@@ -152,9 +152,22 @@ def user_pod_config(pod_name: str, container_number: int) -> dict:
 @app.route("/config", methods=["POST"])
 def config():
     data = request.get_json(force=True, silent=True) or {}
-    username = data.get("authenticatedUsername") or data.get("username", "")
+    # ONLY the authenticated username, never the client-supplied "username"
+    # field. This value decides which pod to exec into and which JupyterHub
+    # account the launcher acts on, so accepting the client's own claim would
+    # let any authenticated user reach another user's pod and start or stop
+    # their server. The auth webhook derives this from the token's owner and
+    # always sets it on success; if it is missing, fail closed.
+    username = data.get("authenticatedUsername") or ""
     remote_address = data.get("remoteAddress", "")
     connection_id = data.get("connectionId", "")
+    if not username:
+        logger.warning(
+            "Config request with no authenticatedUsername "
+            "(remoteAddress=%s connectionId=%s); refusing to route",
+            remote_address,
+            connection_id,
+        )
 
     logger.info(
         "Config request: username=%s remoteAddress=%s connectionId=%s",

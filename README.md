@@ -46,10 +46,53 @@ Any failure — lookup error, no server, container not ready — falls back to t
 launcher, so this degrades to the previous behaviour rather than refusing the
 connection.
 
-### Singleuser pod agent (optional)
+### Singleuser pod tooling (rsync, sftp, agent)
 
-The guest agent is **not** required to attach to the user's pod. With
-`userPod.agentPath` empty — the default — ContainerSSH runs with
+Unmodified coffea-casa images ship `scp` but **not** `rsync`, `sftp-server`, or
+the ContainerSSH guest agent. What works out of the box, and what each addition
+buys:
+
+| Capability | Unmodified image | Needs |
+|---|---|---|
+| Login shell, `ssh host cmd` | ✅ | — |
+| VS Code Remote-SSH | ✅ | — |
+| `scp -O`, i.e. legacy SCP protocol | ✅ | — |
+| Plain `scp`, `sftp` | ❌ | `sftp-server` + `userPod.subsystems` |
+| `rsync` | ❌ | `rsync` on `PATH` |
+| `SendEnv`, SSH signal forwarding | ❌ | guest agent + `userPod.agentPath` |
+
+All three binaries are installed with a single `initContainer` that copies them
+out of a 19MB staging image (`docker/ssh-tools`), leaving every notebook image
+untouched. See
+[`examples/singleuser-agent-values.yaml`](charts/containerssh-jhub/examples/singleuser-agent-values.yaml),
+which merges into your **z2jh** values.
+
+**Why these are not static builds.** The images are AlmaLinux 9, and every
+library `rsync` and `sftp-server` need is already present — `libacl`,
+`libpopt`, `liblz4`, `libzstd`, `libcrypto.so.3`, `libz`, `libselinux`,
+`libpcre2`. Building them on the matching distro was verified by running both
+inside `cc-dask-alma9` with zero unresolved libraries, so there is no static
+toolchain, no `LD_LIBRARY_PATH`, and no `patchelf` — and they stay on the
+distro's security updates.
+
+**`rsync` is the one that must be on `PATH`**, because the client sends a bare
+`rsync --server …` for the remote shell to resolve; the agent and
+`sftp-server` are reached by absolute path. The example mounts it into
+`/usr/local/bin` with a `subPath`, or users can skip that and pass
+`rsync --rsync-path=/opt/containerssh/rsync`.
+
+**Set `userPod.subsystems` to enable sftp.** ContainerSSH otherwise defaults to
+`/usr/lib/openssh/sftp-server`, which does not exist on AlmaLinux (it uses
+`/usr/libexec/`), so plain `scp` fails with `executable file not found`:
+
+```yaml
+userPod:
+  subsystems: "sftp=/opt/containerssh/sftp-server"
+```
+
+#### The guest agent is optional
+
+With `userPod.agentPath` empty — the default — ContainerSSH runs with
 `disableAgent`, and a login shell, `scp -O` and VS Code Remote-SSH all work
 against unmodified notebook images.
 
@@ -63,27 +106,17 @@ Note the failure asymmetry: an empty `agentPath` is safe, but an `agentPath`
 pointing at a file that is not there is fatal — ContainerSSH execs it and the
 session dies with no fallback. Set it only once the binary is in place.
 
-To install it without rebuilding every notebook image, use an `initContainer`
-that copies the binary into an `emptyDir` shared with the notebook container.
-See
-[`examples/singleuser-agent-values.yaml`](charts/containerssh-jhub/examples/singleuser-agent-values.yaml),
-which merges into your **z2jh** values.
+Two things the example gets deliberately right:
 
-Two things that example gets deliberately right:
-
-- It mounts a **directory** at `/opt/containerssh`, never a `subPath` onto
-  `/usr/bin/containerssh-agent`. A `subPath` whose source file is missing makes
-  kubelet create a *directory* at the mount point, which then shadows any real
-  binary of that name.
-- The copy always `exit 0`s, so a missing agent degrades SSH rather than
-  stopping a user's Jupyter server from starting. Because an unpullable
-  `initContainer` image *would* block startup, the example also adds the image
-  to `prePuller.extraImages`.
-
-`sftp` and `rsync` need executables that current coffea-casa images do not
-ship (`sftp-server` and `rsync` are both absent; `scp` is present). Until they
-are added, leave `userPod.subsystems` empty and use `scp -O`, which forces the
-legacy SCP protocol instead of requesting the sftp subsystem.
+- It mounts a **directory** at `/opt/containerssh` for the agent and
+  `sftp-server`, never a `subPath` onto `/usr/bin`. A `subPath` whose source
+  file is missing makes kubelet create a *directory* at the mount point, which
+  then shadows any real binary of that name. (`rsync` is the deliberate
+  exception, since it has to be on `PATH`.)
+- The copy always `exit 0`s, so missing tools degrade SSH rather than stopping
+  a user's Jupyter server from starting. Because an unpullable `initContainer`
+  image *would* block startup, the example also adds the image to
+  `prePuller.extraImages`.
 
 Login validation authenticates with the user's own token, so it needs no
 privileged credentials. A scoped **service token** is used by the launcher

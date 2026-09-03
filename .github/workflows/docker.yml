@@ -26,6 +26,8 @@ jobs:
             image: containerssh-config
           - context: docker/launcher
             image: containerssh-launcher
+          - context: docker/ssh-tools
+            image: containerssh-ssh-tools
 
     steps:
       - uses: actions/checkout@v4

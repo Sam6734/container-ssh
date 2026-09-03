@@ -1,40 +1,42 @@
-# ContainerSSH guest agent for JupyterHub singleuser pods.
+# SSH tooling for JupyterHub singleuser pods: the ContainerSSH guest agent,
+# rsync, and sftp-server.
 #
 # Merge into your *z2jh* values (not this chart's) — these keys configure the
-# JupyterHub release, so that `userPod.enabled=true` in the containerssh-jhub
-# chart has an agent to talk to.
+# JupyterHub release. Pair it with the containerssh-jhub chart settings at the
+# bottom of this file.
 #
-# Why an initContainer instead of rebuilding the images: the agent is a single
-# static Go binary, and copying it out of the launcher image at spawn time
-# keeps every coffea-casa image unmodified and keeps the agent version pinned
-# to the gateway that uses it.
+# Why an initContainer instead of rebuilding the images: all three are just
+# binaries, so copying them out of a 19MB staging image at spawn time leaves
+# every coffea-casa image untouched and keeps the agent version pinned to the
+# gateway that uses it.
 #
-# Why copy from the launcher image instead of downloading the release tarball:
-# no network dependency on the spawn path, no sha256 to bump on each agent
-# upgrade, and a GitHub outage cannot delay user logins.
+# Why not static builds: the coffea-casa images are AlmaLinux 9, and every
+# library rsync and sftp-server need is already there (libacl, libpopt, liblz4,
+# libzstd, libcrypto.so.3, libz, libselinux, libpcre2). Building them on the
+# matching distro was verified by running both inside cc-dask-alma9 with zero
+# unresolved libraries — no static toolchain, no LD_LIBRARY_PATH, no patchelf.
 
 singleuser:
   initContainers:
-    - name: containerssh-agent
-      # Same image (and therefore same agent build) as the SSH gateway.
-      image: ghcr.io/sam6734/containerssh-launcher:0.2.2
+    - name: ssh-tools
+      image: ghcr.io/sam6734/containerssh-ssh-tools:0.3.1
       imagePullPolicy: IfNotPresent
       command:
         - sh
         - -c
-        # Never fail the pod: a missing agent degrades SSH to "no window
-        # resizing / no signal forwarding", but must not stop a user's Jupyter
-        # server from starting. Hence the `|| :` and the explicit `exit 0`.
+        # Never fail the pod. Missing tools degrade SSH (no rsync/sftp, no
+        # signal forwarding) but must not stop a user's Jupyter server from
+        # starting — hence the `|| :` and the explicit `exit 0`.
         - |
-          if cp /usr/bin/containerssh-agent /agent/containerssh-agent 2>/dev/null; then
-            chmod 0755 /agent/containerssh-agent || :
-            echo "containerssh-agent installed"
+          if cp -a /opt/ssh-tools/. /agent/ 2>/dev/null; then
+            chmod 0755 /agent/* 2>/dev/null || :
+            echo "ssh-tools installed: $(ls /agent | tr '\n' ' ')"
           else
-            echo "WARNING: containerssh-agent unavailable; SSH will be degraded"
+            echo "WARNING: ssh-tools unavailable; SSH will be degraded"
           fi
           exit 0
       volumeMounts:
-        - name: containerssh-agent
+        - name: ssh-tools
           mountPath: /agent
       resources:
         requests:
@@ -46,21 +48,55 @@ singleuser:
 
   storage:
     extraVolumes:
-      - name: containerssh-agent
+      - name: ssh-tools
         emptyDir: {}
     extraVolumeMounts:
-      # Deliberately a *directory* mount, not a subPath onto /usr/bin. A
-      # subPath whose source file is missing makes kubelet create a directory
-      # at the mount point, which then shadows any real binary of that name.
-      - name: containerssh-agent
+      # A *directory* mount, never a subPath onto /usr/bin. A subPath whose
+      # source file is missing makes kubelet create a directory at the mount
+      # point, which then shadows any real binary of that name. ContainerSSH
+      # reaches the agent and sftp-server here by absolute path, so this is all
+      # they need.
+      - name: ssh-tools
         mountPath: /opt/containerssh
         readOnly: true
+      # rsync is the exception that does need to be on PATH, because the client
+      # sends a bare `rsync --server ...` command for the remote shell to
+      # resolve. /usr/local/bin is on PATH in these images. This is a subPath,
+      # so it adds one file rather than shadowing the directory. The init
+      # container copies from an image rather than downloading, so the source
+      # file is deterministic — and in the worst case a stray directory here is
+      # ugly but harmless.
+      #
+      # Users can skip this mount entirely and pass
+      #   rsync --rsync-path=/opt/containerssh/rsync ...
+      - name: ssh-tools
+        mountPath: /usr/local/bin/rsync
+        subPath: rsync
+        readOnly: true
 
-# An initContainer image that cannot be pulled will block the user's server
-# from starting, and the continuous image puller only prepulls singleuser
-# images by default. Prepull the agent image on every node too.
+# An initContainer image that cannot be pulled blocks the user's server from
+# starting, and the continuous image puller only prepulls singleuser images by
+# default. Prepull the tools image on every node too.
 prePuller:
   extraImages:
-    containerssh-agent:
-      name: ghcr.io/sam6734/containerssh-launcher
-      tag: "0.2.2"
+    ssh-tools:
+      name: ghcr.io/sam6734/containerssh-ssh-tools
+      tag: "0.3.1"
+
+# ---------------------------------------------------------------------------
+# Matching containerssh-jhub chart values (a SEPARATE Helm release).
+#
+# userPod:
+#   enabled: true
+#   agentPath: /opt/containerssh/containerssh-agent
+#   subsystems: "sftp=/opt/containerssh/sftp-server"
+#
+# Set agentPath only once the initContainer above is actually in place: an
+# empty path is safe, but a path to a missing binary is fatal, because
+# ContainerSSH execs it with no fallback.
+#
+# The sftp subsystem is what makes plain `scp` and `sftp` work. ContainerSSH
+# otherwise defaults to /usr/lib/openssh/sftp-server, which does not exist on
+# AlmaLinux (it uses /usr/libexec/), so without this setting `scp` fails with
+# "executable file not found" and users must pass `scp -O`.
+# ---------------------------------------------------------------------------
